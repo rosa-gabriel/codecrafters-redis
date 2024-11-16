@@ -12,14 +12,17 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                println!("accepted new connection");
                 std::thread::spawn(move || {
                     let mut buf = [0; 512];
                     loop {
                         let count = stream.read(&mut buf).unwrap();
+
                         if count == 0 {
                             break;
                         }
+
+                        let incoming_message = String::from_utf8_lossy(&buf);
+                        println!("{}", incoming_message);
 
                         stream.write(b"+PONG\r\n").unwrap();
                     }
