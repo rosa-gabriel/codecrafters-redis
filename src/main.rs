@@ -1,18 +1,31 @@
 #![allow(unused_imports)]
 use std::{
+    collections::HashMap,
+    hash::Hash,
     io::{Read, Write},
     net::TcpListener,
+    sync::{Arc, Mutex},
     usize,
 };
+
+const OK: &str = "+OK\r\n";
+const PONG: &str = "+PONG\r\n";
+const NULL_BULK: &str = "$-1\r\n";
+
+fn str_to_response(message: &str) -> String {
+    return format!("${}\r\n{}\r\n", message.len(), message);
+}
 
 fn main() {
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let in_memory_map: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                let in_memory_map_instance = in_memory_map.clone();
                 std::thread::spawn(move || {
                     let mut buf = [0; 512];
                     loop {
@@ -62,17 +75,51 @@ fn main() {
                         let response;
 
                         match command.to_lowercase().as_str() {
-                            "ping" | "info" | "quit" => {
-                                response = "+PONG\r\n".to_string();
+                            "ping" => {
+                                response = PONG.to_string();
                             }
-                            "echo" => {
-                                match args.get(1) {
-                                    Some(echo_message) => {
-                                        response = format!("${}\r\n{}\r\n", echo_message.len(), echo_message)
-                                    },
-                                    None => break,
+                            "get" => match args.get(1) {
+                                Some(map_key) => {
+                                    let in_memroy_map_lock = in_memory_map_instance.lock().unwrap();
+
+                                    response = match in_memroy_map_lock.get(*map_key) {
+                                        Some(value) => str_to_response(value),
+                                        None => NULL_BULK.to_string(),
+                                    };
+
+                                    drop(in_memroy_map_lock);
+                                }
+                                None => {
+                                    println!("error");
+                                    break;
+                                }
+                            },
+                            "set" => {
+                                let mapkey = args.get(1);
+                                let mapvalue = args.get(2);
+                                if mapkey.is_some() && mapvalue.is_some() {
+                                    let mapkey = mapkey.unwrap();
+                                    let mapvalue = mapvalue.unwrap();
+
+                                    let mut in_memroy_map_lock = in_memory_map_instance.lock().unwrap();
+
+                                    in_memroy_map_lock.insert(mapkey.to_string(), mapvalue.to_string());
+
+                                    response = OK.to_string();
+                                    drop(in_memroy_map_lock);
+                                } else {
+                                    println!("error");
+                                    break;
                                 }
                             }
+                            "info" | "quit" => response = OK.to_string(),
+                            "echo" => match args.get(1) {
+                                Some(echo_message) => response = str_to_response(echo_message),
+                                None => {
+                                    println!("error");
+                                    break;
+                                }
+                            },
                             _ => {
                                 println!("error");
                                 break;
